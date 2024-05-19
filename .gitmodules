@@ -1,0 +1,3 @@
+[submodule "survey_money/lib/forge-std"]
+	path = survey_money/lib/forge-std
+	url = https://github.com/foundry-rs/forge-std
