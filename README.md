@@ -1,5 +1,5 @@
 # Survey Money
-(Incomplete documentation, will finish later)
+(Incomplete documentation, will finish later)\n
 APIs of the application: what they do, how they are called, what they return, and any special and security notes
 CreateSurvey(string calldata question, string[] calldata answers, uint256 expiration_time, uint256 response_cap, uint256 pooled_reward)
 Creates a survey and adds the survey to the survey list
