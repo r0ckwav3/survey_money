@@ -146,7 +146,8 @@ contract SurveyManager {
         activeSurveys[activeSurveyPos] = activeSurveys[activeSurveys.lenght - 1];
         activeSurveys[activeSurveys.length - 1] = temp;
         activeSurveys.pop();
-        
+
+        // TODO: also remove the survey from the account's list of active survey IDs
         //Distribute eth
 
         uint256 remainingEth = survey.response - HOST_CUT;
