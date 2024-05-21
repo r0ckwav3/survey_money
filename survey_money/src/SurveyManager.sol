@@ -91,6 +91,8 @@ contract SurveyManager {
         if(surveyById[surveyId].hasUserResponded[msg.sender]){
             return false;
         }
+        //TODO: also check that the answer number is one of the options for the survey
+
         surveyById[surveyId].answerCount[answer]++;
         surveyById[surveyId].hasUserResponded[msg.sender] = true;
         return true;
