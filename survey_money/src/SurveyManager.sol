@@ -9,7 +9,7 @@ contract SurveyManager {
         string question;
         string[] answers;
         uint256[] answerCounts;
-        mapping(address => bool) hasUserResponded;
+        address[] hasUserResponded;
         uint256 expirationTime; //timestamp it should expire (unix in seconds)
         uint256 maxResponses;
         uint256 reward; //in wei
@@ -23,16 +23,23 @@ contract SurveyManager {
 
     uint256 public constant HOST_CUT = 5000; //flat rate in wei
 
-    mapping(address=>bool) isRegistered;
-    mapping(string=>bool) isNameTaken;
-    mapping(address=>Account) registeredUsers;
-    mapping(uint256=>Survey) surveyById;
+    mapping(address=>bool) public isRegistered;
+    mapping(string=>bool) public isNameTaken;
+    mapping(address=>Account) public registeredUsers;
+    mapping(uint256=>Survey) public surveyById;
     Survey[] public activeSurveys;
     uint256 public nextSurveyId;
+    uint256 public max_surveys = 100; // temporary solution to the issue of newArray initialization when initializing an Account. Or maybe we can decide to just keep the survey max.
+    mapping(address => uint256) private balances;
 
     constructor() {
         nextSurveyId = 0;
         
+    }
+
+    function addBalance(uint256 amount) public returns (bool) {
+        balances[msg.sender] += amount;
+        return true;
     }
 
     // Registers sender if not already registered
@@ -44,10 +51,11 @@ contract SurveyManager {
         
         isRegistered[msg.sender] = true;
         isNameTaken[username] = true;
+
         registeredUsers[msg.sender] = Account({
             userAddress: msg.sender,
             name: username,
-            activeSurveys: []
+            activeSurveys: new uint256[](max_surveys)
         });
 
         return true;
@@ -64,17 +72,27 @@ contract SurveyManager {
         if (uint256(remainingETH / response_cap) <= 0) { // not enough ETH to divide among user particiants
             return false;
         }
+
+        if (balances[msg.sender] < pooled_reward) {
+            return false;
+        }
+        
+        balances[msg.sender] -= pooled_reward;
         
         Survey memory newSurvey = Survey({
             owner: address(msg.sender),
             id: nextSurveyId,
+            active: true,
             question: question,
             answers: answers,
             answerCounts: new uint256[](answers.length),
-            expirationTime: block.Timestamp + expiration_time,
+            expirationTime: block.timestamp + expiration_time,
+            hasUserResponded: new address[](1),
             maxResponses: response_cap,
             reward: pooled_reward
         });
+        newSurvey.hasUserResponded = new address[](newSurvey.maxResponses);
+
         surveyById[nextSurveyId] = newSurvey;
         activeSurveys.push(newSurvey);
         nextSurveyId++;
@@ -84,17 +102,24 @@ contract SurveyManager {
     
     // Returns true if successfully responded to
     // Records answer and adds it to the responded mapping in the survey
-    function surveyRespond(int surveyId, int answer) external returns (bool) {
+    function surveyRespond(uint surveyId, uint answer) external returns (bool) {
         if(!surveyById[surveyId].active){
             return false;
         }
-        if(surveyById[surveyId].hasUserResponded[msg.sender]){
+        for (uint i = 0; i < surveyById[surveyId].hasUserResponded.length; i++) {
+            if(surveyById[surveyId].hasUserResponded[i] == msg.sender){
+                return false;
+            }
+        }
+
+        if (answer >= surveyById[surveyId].answers.length) {
             return false;
         }
-        //TODO: also check that the answer number is one of the options for the survey
+        // TODO: Should we allow survey owners to respond to their own surveys?
+        // require(msg.sender != surveyById[surveyId].owner, "Owner can't answer their own survey.");
 
-        surveyById[surveyId].answerCount[answer]++;
-        surveyById[surveyId].hasUserResponded[msg.sender] = true;
+        surveyById[surveyId].answerCounts[answer]++;
+        surveyById[surveyId].hasUserResponded.push(msg.sender);
         return true;
     }
     
@@ -106,9 +131,9 @@ contract SurveyManager {
     }
     // Gets all surveys for a currently active
     function getActiveSurveys() external returns (uint256[] memory) {
-        uint256[] memory activeSurveyIds;
-        for(int i = 0 ; i < activeSurveyIds.length; i++){        
-            activeSurveyIds.push(activeSurveys[i].id); 
+        uint256[] memory activeSurveyIds = new uint256[](activeSurveys.length);
+        for(uint i = 0 ; i < activeSurveyIds.length; i++){        
+            activeSurveyIds[i] = activeSurveys[i].id;
         }
         return activeSurveyIds; 
     }
@@ -130,31 +155,37 @@ contract SurveyManager {
             return false;
         }
         
-        uint activeSurveyPos = -1;
+        bool ifClosed = false;
+        uint256 activeSurveyPos;
         for(uint256 i = 0 ; i < activeSurveys.length; i++){ 
             if(activeSurveys[i].id == surveyId){
+                ifClosed = true;
                 activeSurveyPos = i;
                 break;
             }
         }
         
-        if (activeSurveyPos < 0) { // check if survey is closed
+        if (ifClosed == false) { // check if survey is closed
             return false;
         }
 
         //Remove Survey from active surveys
         Survey memory temp;
         temp = activeSurveys[activeSurveyPos];
-        activeSurveys[activeSurveyPos] = activeSurveys[activeSurveys.lenght - 1];
+        activeSurveys[activeSurveyPos] = activeSurveys[activeSurveys.length - 1];
         activeSurveys[activeSurveys.length - 1] = temp;
         activeSurveys.pop();
 
         // TODO: also remove the survey from the account's list of active survey IDs
         //Distribute eth
 
-        uint256 remainingEth = survey.response - HOST_CUT;
-        uint256 perPersonEth = remainingEth / survey.
-        
+        uint256 num_responses; // TODO: define this
+        uint256 remainingEth = survey.reward - HOST_CUT;
+        if (num_responses == 0) {
+            balances[survey.owner] += remainingEth;
+        } else {
+            uint256 perPersonEth = remainingEth / num_responses;
+        }
 
         return true;
     }
