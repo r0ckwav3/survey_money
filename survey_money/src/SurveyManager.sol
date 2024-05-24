@@ -57,13 +57,9 @@ contract SurveyManager {
     // Make sure that the user has inputted enough tokens to cover the reward & other fees
     // Make a survey object and add it into the survey list.
     function createSurvey(string calldata question, string[] calldata answers, uint256 expiration_time, uint256 response_cap, uint256 pooled_reward) public returns (bool) {
-        if (!isRegistered[msg.sender]) { // Make sure the user is registered
-            return false;
-        }
-        uint256 remainingETH = pooled_reward - HOST_CUT; //todo: factor in gas costs?
-        if (uint256(remainingETH / response_cap) <= 0) { // not enough ETH to divide among user particiants
-            return false;
-        }
+        require(isRegistered[msg.sender], "Must be registered to create surveys");
+        uint256 remainingETH = pooled_reward - HOST_CUT; //todo: factor in gas costs? (does this happen automatically if we use msg.value?)
+        require(uint256(remainingETH / response_cap) > 0, "Must have enough ETH to distribute among max respondants");
         
         Survey memory newSurvey = Survey({
             owner: address(msg.sender),
@@ -79,19 +75,16 @@ contract SurveyManager {
         activeSurveys.push(newSurvey);
         nextSurveyId++;
 
+        // todo: now that we use requires, do we need to return a bool at all?
         return true;
     }
     
     // Returns true if successfully responded to
     // Records answer and adds it to the responded mapping in the survey
     function surveyRespond(int surveyId, int answer) external returns (bool) {
-        if(!surveyById[surveyId].active){
-            return false;
-        }
-        if(surveyById[surveyId].hasUserResponded[msg.sender]){
-            return false;
-        }
-        //TODO: also check that the answer number is one of the options for the survey
+        require(surveyById[surveyId].active, "Cannot respond to inactive survey");
+        require(surveyById[surveyId].hasUserResponded[msg.sender], "Cannot respond to survey twice");
+        require(answer <= surveyById[surveyId].answers.length, "Please select a valid answer");
 
         surveyById[surveyId].answerCount[answer]++;
         surveyById[surveyId].hasUserResponded[msg.sender] = true;
@@ -102,6 +95,7 @@ contract SurveyManager {
     // User has to be logged in, returns a string for each survey they own
     function getOwnSurveys() external returns (uint256[] memory) {
         require(isRegistered[msg.sender], "Must be registered to get surveys");
+
         return registeredUsers[msg.sender].activeSurveys;
     }
     // Gets all surveys for a currently active
@@ -126,11 +120,10 @@ contract SurveyManager {
     // Closes survey, only if survey belongs to the caller and is not already closed, returns if successfully closed
     function closeSurvey(uint256 surveyId) public payable returns (bool) {
         Survey memory survey = surveyById[surveyId];
-        if (msg.sender != survey.owner) {
-            return false;
-        }
+        require(msg.sender == survey.owner, "Only the survey owner can close the survey");
+        require(survey.active, "Cannot close an inactive survey");
         
-        uint activeSurveyPos = -1;
+        uint activeSurveyPos = -1; // todo: won't this overflow? it's an unsigned int
         for(uint256 i = 0 ; i < activeSurveys.length; i++){ 
             if(activeSurveys[i].id == surveyId){
                 activeSurveyPos = i;
@@ -138,9 +131,8 @@ contract SurveyManager {
             }
         }
         
-        if (activeSurveyPos < 0) { // check if survey is closed
-            return false;
-        }
+        // since we require survey.active, it should always be in the active list
+        assert(activeSurveyPos >= 0);
 
         //Remove Survey from active surveys
         Survey memory temp;
@@ -151,11 +143,11 @@ contract SurveyManager {
 
         // TODO: also remove the survey from the account's list of active survey IDs
         //Distribute eth
+        // do we remove the host cut here or at survey creation (imo, we do it at the top - peter)
 
-        uint256 remainingEth = survey.response - HOST_CUT;
-        uint256 perPersonEth = remainingEth / survey.
+        uint256 remainingEth = survey.reward - HOST_CUT;
+        uint256 perPersonEth = remainingEth / survey;
         
-
         return true;
     }
 }
