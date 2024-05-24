@@ -56,11 +56,20 @@ contract SurveyManager {
     // Make sure the user is registered
     // Make sure that the user has inputted enough tokens to cover the reward & other fees
     // Make a survey object and add it into the survey list.
-    function createSurvey(string calldata question, string[] calldata answers, uint256 expiration_time, uint256 response_cap, uint256 pooled_reward) public returns (bool) {
+    // note: pooled_reward does not include gas or host cut, which should be part of the eth value passed
+    function createSurvey(string calldata question, string[] calldata answers, uint256 expiration_time, uint256 response_cap, uint256 pooled_reward) public payable returns (bool) {
         require(isRegistered[msg.sender], "Must be registered to create surveys");
-        uint256 remainingETH = pooled_reward - HOST_CUT; //todo: factor in gas costs? (does this happen automatically if we use msg.value?)
+        require(msg.value >= pooled_reward + HOST_CUT, "Not enough ETH passed to cover survey reward and host cut");
         require(uint256(remainingETH / response_cap) > 0, "Must have enough ETH to distribute among max respondants");
+
+        uint256 remainingETH = msg.value - (pooled_reward + HOST_CUT); //todo: factor in gas costs? (does this happen automatically if we use msg.value?)
         
+        // check for re-entry attacks here
+        if (remainingETH >= 0){
+            (bool sent,) = msg.sender.call{value: remainingETH}("Refunded eth from createSurvey()");
+            require(sent, "Cannot refunt excess ether to the survey creator");
+        }
+
         Survey memory newSurvey = Survey({
             owner: address(msg.sender),
             id: nextSurveyId,
