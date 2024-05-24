@@ -76,6 +76,10 @@ contract SurveyManager {
         if (balances[msg.sender] < pooled_reward) {
             return false;
         }
+
+        if (answers.length == 0) { // need to provide at least one answer;
+            return false;
+        }
         
         balances[msg.sender] -= pooled_reward;
         
@@ -92,9 +96,11 @@ contract SurveyManager {
             reward: pooled_reward
         });
         newSurvey.hasUserResponded = new address[](newSurvey.maxResponses);
+        Account storage acc = registeredUsers[msg.sender];
 
         surveyById[nextSurveyId] = newSurvey;
         activeSurveys.push(newSurvey);
+        acc.activeSurveys.push(newSurvey.id);
         nextSurveyId++;
 
         return true;
@@ -185,6 +191,10 @@ contract SurveyManager {
             balances[survey.owner] += remainingEth;
         } else {
             uint256 perPersonEth = remainingEth / num_responses;
+            for (uint i = 0; i < num_responses; i++) {
+                address addr = survey.hasUserResponded[i];
+                balances[addr] += perPersonEth;
+            }
         }
 
         return true;
