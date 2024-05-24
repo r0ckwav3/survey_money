@@ -38,7 +38,10 @@ Returns the question of the survey that corresponds to the surveyId.
 
 ## How to set up the environment and initialize the application
 In order to run this application, the user must have Foundry installed, which can be done by following the steps [here](https://book.getfoundry.sh/getting-started/installation).
-The user can run the tests written for the application using (finish later).
+The user can run the tests written for the application in a Linux environment using 
+```
+$forge test
+```
 In order to use the application itself, (finish later).
 
 ## What kinds of components there are, and what they do
