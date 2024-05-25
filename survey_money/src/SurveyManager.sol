@@ -9,7 +9,7 @@ contract SurveyManager {
         string question;
         string[] answers;
         uint256[] answerCounts;
-        mapping(address => bool) hasUserResponded;
+        address[] hasUserResponded;
         uint256 expirationTime; //timestamp it should expire (unix in seconds)
         uint256 maxResponses;
         uint256 reward; //in wei
@@ -23,16 +23,23 @@ contract SurveyManager {
 
     uint256 public constant HOST_CUT = 5000; //flat rate in wei
 
-    mapping(address=>bool) isRegistered;
-    mapping(string=>bool) isNameTaken;
-    mapping(address=>Account) registeredUsers;
-    mapping(uint256=>Survey) surveyById;
+    mapping(address=>bool) public isRegistered;
+    mapping(string=>bool) public isNameTaken;
+    mapping(address=>Account) public registeredUsers;
+    mapping(uint256=>Survey) public surveyById;
     Survey[] public activeSurveys;
     uint256 public nextSurveyId;
+    uint256 public max_surveys = 100; // temporary solution to the issue of newArray initialization when initializing an Account. Or maybe we can decide to just keep the survey max.
+    mapping(address => uint256) private balances;
 
     constructor() {
         nextSurveyId = 0;
         
+    }
+
+    function addBalance(uint256 amount) public returns (bool) {
+        balances[msg.sender] += amount;
+        return true;
     }
 
     // Registers sender if not already registered
@@ -44,10 +51,11 @@ contract SurveyManager {
         
         isRegistered[msg.sender] = true;
         isNameTaken[username] = true;
+
         registeredUsers[msg.sender] = Account({
             userAddress: msg.sender,
             name: username,
-            activeSurveys: []
+            activeSurveys: new uint256[](max_surveys)
         });
 
         return true;
@@ -56,47 +64,53 @@ contract SurveyManager {
     // Make sure the user is registered
     // Make sure that the user has inputted enough tokens to cover the reward & other fees
     // Make a survey object and add it into the survey list.
-    // note: pooled_reward does not include gas or host cut, which should be part of the eth value passed
     function createSurvey(string calldata question, string[] calldata answers, uint256 expiration_time, uint256 response_cap, uint256 pooled_reward) public payable returns (bool) {
         require(isRegistered[msg.sender], "Must be registered to create surveys");
         require(msg.value >= pooled_reward + HOST_CUT, "Not enough ETH passed to cover survey reward and host cut");
+        uint256 remainingETH = msg.value - (pooled_reward + HOST_CUT);
         require(uint256(remainingETH / response_cap) > 0, "Must have enough ETH to distribute among max respondants");
-
-        uint256 remainingETH = msg.value - (pooled_reward + HOST_CUT); //todo: factor in gas costs? (does this happen automatically if we use msg.value?)
+        require(balances[msg.sender] > pooled_reward, "The reward can not exceed your current balance");
+        require(answers.length > 0, "Must include at least one answer option");
         
-        // check for re-entry attacks here
-        if (remainingETH >= 0){
-            (bool sent,) = msg.sender.call{value: remainingETH}("Refunded eth from createSurvey()");
-            require(sent, "Cannot refunt excess ether to the survey creator");
-        }
-
+        balances[msg.sender] -= pooled_reward;
+        
         Survey memory newSurvey = Survey({
             owner: address(msg.sender),
             id: nextSurveyId,
+            active: true,
             question: question,
             answers: answers,
             answerCounts: new uint256[](answers.length),
-            expirationTime: block.Timestamp + expiration_time,
+            expirationTime: block.timestamp + expiration_time,
+            hasUserResponded: new address[](1),
             maxResponses: response_cap,
             reward: pooled_reward
         });
+        newSurvey.hasUserResponded = new address[](newSurvey.maxResponses);
+        Account storage acc = registeredUsers[msg.sender];
+
         surveyById[nextSurveyId] = newSurvey;
         activeSurveys.push(newSurvey);
+        acc.activeSurveys.push(newSurvey.id);
         nextSurveyId++;
 
-        // todo: now that we use requires, do we need to return a bool at all?
         return true;
     }
     
     // Returns true if successfully responded to
     // Records answer and adds it to the responded mapping in the survey
-    function surveyRespond(int surveyId, int answer) external returns (bool) {
-        require(surveyById[surveyId].active, "Cannot respond to inactive survey");
-        require(surveyById[surveyId].hasUserResponded[msg.sender], "Cannot respond to survey twice");
-        require(answer <= surveyById[surveyId].answers.length, "Please select a valid answer");
+    function surveyRespond(uint surveyId, uint answer) external returns (bool) {
+        for (uint i = 0; i < surveyById[surveyId].hasUserResponded.length; i++) {
+            require(surveyById[surveyId].hasUserResponded[i] != msg.sender, "Cannot respond to survey twice");
+        }
 
-        surveyById[surveyId].answerCount[answer]++;
-        surveyById[surveyId].hasUserResponded[msg.sender] = true;
+        require(surveyById[surveyId].active, "Cannot respond to inactive survey");
+        require(answer <= surveyById[surveyId].answers.length, "Please select a valid answer");
+        // TODO: Should we allow survey owners to respond to their own surveys?
+        // require(msg.sender != surveyById[surveyId].owner, "Owner can't answer their own survey.");
+
+        surveyById[surveyId].answerCounts[answer]++;
+        surveyById[surveyId].hasUserResponded.push(msg.sender);
         return true;
     }
     
@@ -104,14 +118,13 @@ contract SurveyManager {
     // User has to be logged in, returns a string for each survey they own
     function getOwnSurveys() external returns (uint256[] memory) {
         require(isRegistered[msg.sender], "Must be registered to get surveys");
-
         return registeredUsers[msg.sender].activeSurveys;
     }
     // Gets all surveys for a currently active
     function getActiveSurveys() external returns (uint256[] memory) {
-        uint256[] memory activeSurveyIds;
-        for(int i = 0 ; i < activeSurveyIds.length; i++){        
-            activeSurveyIds.push(activeSurveys[i].id); 
+        uint256[] memory activeSurveyIds = new uint256[](activeSurveys.length);
+        for(uint i = 0 ; i < activeSurveyIds.length; i++){        
+            activeSurveyIds[i] = activeSurveys[i].id;
         }
         return activeSurveyIds; 
     }
@@ -132,31 +145,42 @@ contract SurveyManager {
         require(msg.sender == survey.owner, "Only the survey owner can close the survey");
         require(survey.active, "Cannot close an inactive survey");
         
-        uint activeSurveyPos = -1; // todo: won't this overflow? it's an unsigned int
+        bool ifClosed = false;
+        uint256 activeSurveyPos;
         for(uint256 i = 0 ; i < activeSurveys.length; i++){ 
             if(activeSurveys[i].id == surveyId){
+                ifClosed = true;
                 activeSurveyPos = i;
                 break;
             }
         }
         
-        // since we require survey.active, it should always be in the active list
-        assert(activeSurveyPos >= 0);
+        if (ifClosed == false) { // check if survey is closed
+            return false;
+        }
 
         //Remove Survey from active surveys
         Survey memory temp;
         temp = activeSurveys[activeSurveyPos];
-        activeSurveys[activeSurveyPos] = activeSurveys[activeSurveys.lenght - 1];
+        activeSurveys[activeSurveyPos] = activeSurveys[activeSurveys.length - 1];
         activeSurveys[activeSurveys.length - 1] = temp;
         activeSurveys.pop();
 
         // TODO: also remove the survey from the account's list of active survey IDs
         //Distribute eth
-        // do we remove the host cut here or at survey creation (imo, we do it at the top - peter)
 
+        uint256 num_responses; // TODO: define this
         uint256 remainingEth = survey.reward - HOST_CUT;
-        uint256 perPersonEth = remainingEth / survey;
-        
+        if (num_responses == 0) {
+            balances[survey.owner] += remainingEth;
+        } else {
+            uint256 perPersonEth = remainingEth / num_responses;
+            for (uint i = 0; i < num_responses; i++) {
+                address addr = survey.hasUserResponded[i];
+                balances[addr] += perPersonEth;
+            }
+        }
+
         return true;
     }
 }
