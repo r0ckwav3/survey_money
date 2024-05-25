@@ -64,22 +64,13 @@ contract SurveyManager {
     // Make sure the user is registered
     // Make sure that the user has inputted enough tokens to cover the reward & other fees
     // Make a survey object and add it into the survey list.
-    function createSurvey(string calldata question, string[] calldata answers, uint256 expiration_time, uint256 response_cap, uint256 pooled_reward) public returns (bool) {
-        if (!isRegistered[msg.sender]) { // Make sure the user is registered
-            return false;
-        }
-        uint256 remainingETH = pooled_reward - HOST_CUT; //todo: factor in gas costs?
-        if (uint256(remainingETH / response_cap) <= 0) { // not enough ETH to divide among user particiants
-            return false;
-        }
-
-        if (balances[msg.sender] < pooled_reward) {
-            return false;
-        }
-
-        if (answers.length == 0) { // need to provide at least one answer;
-            return false;
-        }
+    function createSurvey(string calldata question, string[] calldata answers, uint256 expiration_time, uint256 response_cap, uint256 pooled_reward) public payable returns (bool) {
+        require(isRegistered[msg.sender], "Must be registered to create surveys");
+        require(msg.value >= pooled_reward + HOST_CUT, "Not enough ETH passed to cover survey reward and host cut");
+        uint256 remainingETH = msg.value - (pooled_reward + HOST_CUT);
+        require(uint256(remainingETH / response_cap) > 0, "Must have enough ETH to distribute among max respondants");
+        require(balances[msg.sender] > pooled_reward, "The reward can not exceed your current balance");
+        require(answers.length > 0, "Must include at least one answer option");
         
         balances[msg.sender] -= pooled_reward;
         
@@ -109,18 +100,12 @@ contract SurveyManager {
     // Returns true if successfully responded to
     // Records answer and adds it to the responded mapping in the survey
     function surveyRespond(uint surveyId, uint answer) external returns (bool) {
-        if(!surveyById[surveyId].active){
-            return false;
-        }
         for (uint i = 0; i < surveyById[surveyId].hasUserResponded.length; i++) {
-            if(surveyById[surveyId].hasUserResponded[i] == msg.sender){
-                return false;
-            }
+            require(surveyById[surveyId].hasUserResponded[i] != msg.sender, "Cannot respond to survey twice");
         }
 
-        if (answer >= surveyById[surveyId].answers.length) {
-            return false;
-        }
+        require(surveyById[surveyId].active, "Cannot respond to inactive survey");
+        require(answer <= surveyById[surveyId].answers.length, "Please select a valid answer");
         // TODO: Should we allow survey owners to respond to their own surveys?
         // require(msg.sender != surveyById[surveyId].owner, "Owner can't answer their own survey.");
 
@@ -157,9 +142,8 @@ contract SurveyManager {
     // Closes survey, only if survey belongs to the caller and is not already closed, returns if successfully closed
     function closeSurvey(uint256 surveyId) public payable returns (bool) {
         Survey memory survey = surveyById[surveyId];
-        if (msg.sender != survey.owner) {
-            return false;
-        }
+        require(msg.sender == survey.owner, "Only the survey owner can close the survey");
+        require(survey.active, "Cannot close an inactive survey");
         
         bool ifClosed = false;
         uint256 activeSurveyPos;
