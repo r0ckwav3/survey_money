@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity ^0.8.13;
+pragma solidity ^0.8.24;
 
 contract SurveyManager {
     struct Survey {
@@ -36,7 +36,7 @@ contract SurveyManager {
         nextSurveyId = 0;
         
     }
-
+    
     function addBalance(uint256 amount) public returns (bool) {
         balances[msg.sender] += amount;
         return true;
@@ -66,10 +66,9 @@ contract SurveyManager {
     // Make a survey object and add it into the survey list.
     function createSurvey(string calldata question, string[] calldata answers, uint256 expiration_time, uint256 response_cap, uint256 pooled_reward) public payable returns (bool) {
         require(isRegistered[msg.sender], "Must be registered to create surveys");
-        require(msg.value >= pooled_reward + HOST_CUT, "Not enough ETH passed to cover survey reward and host cut");
-        uint256 remainingETH = msg.value - (pooled_reward + HOST_CUT);
+        require(balances[msg.sender] >= pooled_reward + HOST_CUT, "Not enough ETH passed to cover survey reward and host cut");
+        uint256 remainingETH = balances[msg.sender] - (pooled_reward + HOST_CUT);
         require(uint256(remainingETH / response_cap) > 0, "Must have enough ETH to distribute among max respondants");
-        require(balances[msg.sender] > pooled_reward, "The reward can not exceed your current balance");
         require(answers.length > 0, "Must include at least one answer option");
         
         balances[msg.sender] -= pooled_reward;
@@ -82,11 +81,10 @@ contract SurveyManager {
             answers: answers,
             answerCounts: new uint256[](answers.length),
             expirationTime: block.timestamp + expiration_time,
-            hasUserResponded: new address[](1),
+            hasUserResponded: new address[](0),
             maxResponses: response_cap,
             reward: pooled_reward
         });
-        newSurvey.hasUserResponded = new address[](newSurvey.maxResponses);
         Account storage acc = registeredUsers[msg.sender];
 
         surveyById[nextSurveyId] = newSurvey;
@@ -97,31 +95,42 @@ contract SurveyManager {
         return true;
     }
     
+    function getSurvey(uint256 surveyId) public view returns (Survey memory) {
+        return surveyById[surveyId];
+    }
+    
     // Returns true if successfully responded to
     // Records answer and adds it to the responded mapping in the survey
     function surveyRespond(uint surveyId, uint answer) external returns (bool) {
+        require(surveyById[surveyId].hasUserResponded.length < surveyById[surveyId].maxResponses, "Response cap reached"); // If closeSurvey() works properly, this should never be called
+
         for (uint i = 0; i < surveyById[surveyId].hasUserResponded.length; i++) {
             require(surveyById[surveyId].hasUserResponded[i] != msg.sender, "Cannot respond to survey twice");
         }
 
         require(surveyById[surveyId].active, "Cannot respond to inactive survey");
-        require(answer <= surveyById[surveyId].answers.length, "Please select a valid answer");
+        require(answer < surveyById[surveyId].answers.length, "Please select a valid answer");
         // TODO: Should we allow survey owners to respond to their own surveys?
         // require(msg.sender != surveyById[surveyId].owner, "Owner can't answer their own survey.");
 
         surveyById[surveyId].answerCounts[answer]++;
         surveyById[surveyId].hasUserResponded.push(msg.sender);
+        
+        if ((surveyById[surveyId].hasUserResponded.length == surveyById[surveyId].maxResponses)) {
+            closeSurvey(surveyId);
+        }
+        
         return true;
     }
     
 
     // User has to be logged in, returns a string for each survey they own
-    function getOwnSurveys() external returns (uint256[] memory) {
+    function getOwnSurveys() external view returns (uint256[] memory) {
         require(isRegistered[msg.sender], "Must be registered to get surveys");
         return registeredUsers[msg.sender].activeSurveys;
     }
     // Gets all surveys for a currently active
-    function getActiveSurveys() external returns (uint256[] memory) {
+    function getActiveSurveys() external view returns (uint256[] memory) {
         uint256[] memory activeSurveyIds = new uint256[](activeSurveys.length);
         for(uint i = 0 ; i < activeSurveyIds.length; i++){        
             activeSurveyIds[i] = activeSurveys[i].id;
@@ -130,19 +139,26 @@ contract SurveyManager {
     }
 
     // Gets all options for the given survey
-    function getAnswerOptions(uint256 surveyId)  external returns (string[] memory) {
+    function getAnswerOptions(uint256 surveyId) external view returns (string[] memory) {
         require(surveyById[surveyId].active, "surveyId is not valid");
         return surveyById[surveyId].answers;
     }
     // Gets the survey question
-    function getSurveyQuestion(uint256 surveyId) external returns (string memory){
+    function getSurveyQuestion(uint256 surveyId) external view returns (string memory){
         require(surveyById[surveyId].active, "surveyId is not valid");
         return surveyById[surveyId].question;
     }
+
+    
     // Closes survey, only if survey belongs to the caller and is not already closed, returns if successfully closed
+    // IMPORTANT NOTE: So turns out Solidity doesn't allow automatic running of functions when a certain timestamp is reached, so automatically closing a survey would require 
+    // off-chain programming in a different language or using cron-like service, which imo isn't worth the effort for this project. Fortunately, the track requirements say
+    // "A survey owner can close the survey OR wait for it to close after the expiry block timestamp OR when it reaches the maximum accepted data points."
+    // This means we can probably just ditch the expiration timestamp without points being deducted.
     function closeSurvey(uint256 surveyId) public payable returns (bool) {
-        Survey memory survey = surveyById[surveyId];
-        require(msg.sender == survey.owner, "Only the survey owner can close the survey");
+        Survey storage survey = surveyById[surveyId];
+        Account storage owner = registeredUsers[msg.sender];
+        require((msg.sender == survey.owner) || (survey.maxResponses == survey.hasUserResponded.length), "Survey closure not authorized");
         require(survey.active, "Cannot close an inactive survey");
         
         bool ifClosed = false;
@@ -159,6 +175,7 @@ contract SurveyManager {
             return false;
         }
 
+        survey.active = false;
         //Remove Survey from active surveys
         Survey memory temp;
         temp = activeSurveys[activeSurveyPos];
@@ -166,11 +183,30 @@ contract SurveyManager {
         activeSurveys[activeSurveys.length - 1] = temp;
         activeSurveys.pop();
 
-        // TODO: also remove the survey from the account's list of active survey IDs
+        
+        // Also remove the survey from the account's list of active survey IDs
+        bool ifClosed_ = false;
+        uint256 activeSurveyPos_;
+        for(uint256 i = 0 ; i < owner.activeSurveys.length; i++){ 
+            if(owner.activeSurveys[i] == surveyId){
+                ifClosed_ = true;
+                activeSurveyPos_ = i;
+                break;
+            }
+        }
+        
+        if (ifClosed_) {
+            uint256 acctemp;
+            acctemp = owner.activeSurveys[activeSurveyPos_];
+            owner.activeSurveys[activeSurveyPos_] = owner.activeSurveys[owner.activeSurveys.length - 1];
+            owner.activeSurveys[owner.activeSurveys.length - 1] = acctemp;
+            owner.activeSurveys.pop();
+        }
         //Distribute eth
-
-        uint256 num_responses; // TODO: define this
+        
+        uint256 num_responses = survey.hasUserResponded.length;
         uint256 remainingEth = survey.reward - HOST_CUT;
+
         if (num_responses == 0) {
             balances[survey.owner] += remainingEth;
         } else {
@@ -180,6 +216,7 @@ contract SurveyManager {
                 balances[addr] += perPersonEth;
             }
         }
+        
 
         return true;
     }
