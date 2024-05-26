@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity ^0.8.13;
+pragma solidity ^0.8.24;
 
-import {Test, console} from "../lib/forge-std/src/Test.sol";
+import "../lib/forge-std/src/Test.sol";
 import "../lib/forge-std/src/Vm.sol";
+import "../lib/forge-std/src/console.sol";
 import {SurveyManager} from "../src/SurveyManager.sol";
 import "../src/SurveyManager.sol";
 
@@ -11,7 +12,10 @@ contract SurveyTest is Test {
     SurveyManager public smgr;
     address public admin = address(0x01);
     address public user = address(0x02);
-    address public guest = address(0x03);
+    address public guest1 = address(0x03);
+    address public guest2 = address(0x04);
+    address public guest3 = address(0x05);
+    address public guest4 = address(0x05);
 
     // TODO: just set up a lot of this stuff outside of pranks so they don't need to be repeated so much
 
@@ -47,7 +51,7 @@ contract SurveyTest is Test {
     */
     function testCreate() public {
         vm.startPrank(user);
-        smgr.addBalance(5 ether);
+        smgr.addBalance(10 ether);
         string[] memory answers = new string[](4);
         answers[0] = "B";
         answers[1] = "C";
@@ -57,8 +61,8 @@ contract SurveyTest is Test {
         bool create_1 = smgr.createSurvey("A", answers, 5, 20, 3 ether);
         assertEq(create_1, true);
         string[] memory empty = new string[](0);
-        bool create_2 = smgr.createSurvey("A", empty, 5, 20, 1 ether); // trying to make a survey with no answers
-        assertEq(create_2, false);
+        vm.expectRevert("Must include at least one answer option");
+        smgr.createSurvey("A", empty, 5, 20, 1 ether); // trying to make a survey with no answers
         vm.stopPrank();
     }
 
@@ -75,8 +79,8 @@ contract SurveyTest is Test {
         answers[2] = "D";
         answers[3] = "E";
         smgr.register("User_one");
-        bool create_1 = smgr.createSurvey("A", answers, 5, 20, 10 ether);
-        assertEq(create_1, false);
+        vm.expectRevert("Not enough ETH passed to cover survey reward and host cut");
+        smgr.createSurvey("A", answers, 5, 20, 10 ether);
         vm.stopPrank();
     }
 
@@ -85,12 +89,12 @@ contract SurveyTest is Test {
     is that the survey can not be created and the function call returns false.
     */
     function testCreateUnregistered() public {
-        vm.startPrank(guest);
+        vm.startPrank(guest1);
         smgr.addBalance(5 ether);
         string[] memory answers = new string[](1);
         answers[0] = "B";
-        bool create_1 = smgr.createSurvey("A", answers, 5, 20, 3 ether);
-        assertEq(create_1, false);
+        vm.expectRevert("Must be registered to create surveys");
+        smgr.createSurvey("A", answers, 5, 20, 3 ether);
         vm.stopPrank();
     }
 
@@ -100,7 +104,7 @@ contract SurveyTest is Test {
     own surveys.
     */
     function testGetOwnSurveys_failed() public {
-        vm.startPrank(guest);
+        vm.startPrank(guest1);
         vm.expectRevert("Must be registered to get surveys");
         smgr.getOwnSurveys();
         vm.stopPrank();
@@ -124,12 +128,10 @@ contract SurveyTest is Test {
         answers[3] = "E";
         smgr.register("User_one");
         smgr.createSurvey("A", answers, 5, 20, 2 ether);
-        smgr.createSurvey("B", answers, 5, 15, 3 ether);
+        smgr.createSurvey("B", answers, 5, 15, 1 ether);
         uint256[] memory new_active = smgr.getActiveSurveys();
-        //TODO: IMPORTANT || I can not, for the life of me, figure out how to get a survey in a test case without raising errors. 
-        // If someone is able to figure this out, please share your solution. Thanks in advance.
-        SurveyManager.Survey memory survey1 = smgr.surveyById(0);
-        SurveyManager.Survey memory survey2 = smgr.surveyById[1];
+        SurveyManager.Survey memory survey1 = smgr.getSurvey(0);
+        SurveyManager.Survey memory survey2 = smgr.getSurvey(1);
         assertEq(new_active.length, 2);
         assertEq(new_active[0], survey1.id);
         assertEq(new_active[1], survey2.id);
@@ -137,5 +139,103 @@ contract SurveyTest is Test {
     }
 
     //TODO: test for survey participation and closing the survey
+    function testRespond() public {
+        vm.startPrank(user);
+        smgr.addBalance(5 ether);
+        string[] memory answers = new string[](4);
+        answers[0] = "B";
+        answers[1] = "C";
+        answers[2] = "D";
+        answers[3] = "E";
+        smgr.register("User_one");
+        smgr.createSurvey("A", answers, 5, 20, 2 ether);
+        vm.stopPrank();
+
+        vm.startPrank(guest1);
+        smgr.surveyRespond(0, 1);
+        vm.stopPrank();
+        vm.startPrank(guest2);
+        smgr.surveyRespond(0, 3);
+        vm.expectRevert("Cannot respond to survey twice");
+        smgr.surveyRespond(0, 2);
+        vm.stopPrank();
+        vm.startPrank(guest3);
+        vm.expectRevert("Please select a valid answer");
+        smgr.surveyRespond(0, 4);
+        smgr.surveyRespond(0, 3);
+        SurveyManager.Survey memory survey = smgr.getSurvey(0);
+        assertEq(survey.hasUserResponded[0], guest1);
+        assertEq(survey.hasUserResponded[1], guest2);
+        assertEq(survey.hasUserResponded[2], guest3);
+        assertEq(survey.answerCounts[0], 0);
+        assertEq(survey.answerCounts[1], 1);
+        assertEq(survey.answerCounts[2], 0);
+        assertEq(survey.answerCounts[3], 2);
+        vm.stopPrank();
+    }
+
+    function testGetQA() public {
+        vm.startPrank(user);
+        smgr.addBalance(5 ether);
+        string[] memory answers = new string[](4);
+        answers[0] = "B";
+        answers[1] = "C";
+        answers[2] = "D";
+        answers[3] = "E";
+        smgr.register("User_one");
+        smgr.createSurvey("A", answers, 5, 20, 2 ether);
+        assertEq(smgr.getSurveyQuestion(0), "A");
+        assertEq(smgr.getAnswerOptions(0), answers);
+        vm.stopPrank();
+    }
+
+    function testCloseSurvey() public {
+        vm.startPrank(user);
+        smgr.addBalance(5 ether);
+        string[] memory answers = new string[](4);
+        answers[0] = "B";
+        answers[1] = "C";
+        answers[2] = "D";
+        answers[3] = "E";
+        smgr.register("User_one");
+        smgr.createSurvey("A", answers, 5, 2, 2 ether);
+        vm.stopPrank();
+        vm.startPrank(guest1);
+        smgr.surveyRespond(0, 1);
+        vm.stopPrank();
+        vm.startPrank(guest2);
+        smgr.surveyRespond(0, 3);
+        SurveyManager.Survey memory survey = smgr.getSurvey(0);
+        assertEq(survey.active, false);
+        vm.stopPrank();
+    }
+
+    function testCloseSurveyFailed() public {
+        vm.startPrank(user);
+        smgr.addBalance(5 ether);
+        string[] memory answers = new string[](4);
+        answers[0] = "B";
+        answers[1] = "C";
+        answers[2] = "D";
+        answers[3] = "E";
+        smgr.register("User_one");
+        smgr.createSurvey("A", answers, 5, 3, 2 ether);
+        vm.stopPrank();
+        vm.startPrank(guest1);
+        smgr.surveyRespond(0, 1);
+        vm.stopPrank();
+        vm.startPrank(guest2);
+        smgr.surveyRespond(0, 3);
+        vm.expectRevert("Survey closure not authorized");
+        smgr.closeSurvey(0);
+        vm.stopPrank();
+        vm.startPrank(user);
+        bool close = smgr.closeSurvey(0);
+        assertEq(close, true);
+        vm.expectRevert("Cannot close an inactive survey");
+        smgr.closeSurvey(0);
+        vm.stopPrank();
+    }
+
 
 }
