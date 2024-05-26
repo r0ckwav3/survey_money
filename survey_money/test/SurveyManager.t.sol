@@ -138,7 +138,13 @@ contract SurveyTest is Test {
         vm.stopPrank();
     }
 
-    //TODO: test for survey participation and closing the survey
+    /*
+    This function tests the ability for other addresses to respond to a survey. It checks that the survey answer counts 
+    update correctly, that the addresses that respond to the survey are added to the list of addresses that have responded, 
+    and checks that participants can not respond to a survey twice or respond with an invalid answer.
+    It is expected that disallowed behavior will return the correct reverts and that the survey object will update the way it 
+    is intended to.
+    */
     function testRespond() public {
         vm.startPrank(user);
         smgr.addBalance(5 ether);
@@ -174,6 +180,11 @@ contract SurveyTest is Test {
         vm.stopPrank();
     }
 
+    /*
+    This function tests that someone can retrieve the survey question and answer options as long as they have the survey ID.
+    The expected behavior is that getSurveyQuestion(0) returns "A", while getAnswerOptions(0) returns the list of answers passed 
+    in as an argument to the createSurvey() function.
+    */
     function testGetQA() public {
         vm.startPrank(user);
         smgr.addBalance(5 ether);
@@ -189,6 +200,11 @@ contract SurveyTest is Test {
         vm.stopPrank();
     }
 
+    /*
+    This function tests if a survey automatically closes once it reaches the response limit. 
+    The expected behavior is that once the second participant votes, the survey automatically closes itself, and 
+    attempts to manually close it again will fail.
+    */
     function testCloseSurvey() public {
         vm.startPrank(user);
         smgr.addBalance(5 ether);
@@ -208,8 +224,18 @@ contract SurveyTest is Test {
         SurveyManager.Survey memory survey = smgr.getSurvey(0);
         assertEq(survey.active, false);
         vm.stopPrank();
+        vm.startPrank(user);
+        vm.expectRevert("Cannot close an inactive survey");
+        smgr.closeSurvey(0);
+        vm.stopPrank();
     }
 
+    /*
+    This function tests both a manual closeSurvey() call by the survey owner and invalid attempts to close the survey.
+    The expected behavior is that anyone not the survey owner attempting to close the survey will be unable to, 
+    the survey owner can manually close the survey while it is still active, and that anyone, including the owner, 
+    attempting to close the survey once it is already inactive will cause a revert.
+    */
     function testCloseSurveyFailed() public {
         vm.startPrank(user);
         smgr.addBalance(5 ether);
