@@ -22,8 +22,15 @@ contract SurveyTest is Test {
     function setUp() public {
         vm.startPrank(admin);
         smgr = new SurveyManager();
+        deal(admin, 0 ether);
+        deal(user, 100 ether);
+        deal(guest1, 0 ether);
+        deal(guest2, 0 ether);
+        deal(guest3, 0 ether);
+        deal(guest4, 0 ether);
         vm.stopPrank();
     }
+
 
     /*
     This tests the register function. The user first registers an account under a username, before attempting to register 
@@ -51,18 +58,19 @@ contract SurveyTest is Test {
     */
     function testCreate() public {
         vm.startPrank(user);
-        smgr.addBalance(10 ether);
+        smgr.register("User_one");
+        smgr.addBalance{value: 10 ether}();
+        assertEq(address(user).balance, 90 ether, "Failed to deposit ether");
         string[] memory answers = new string[](4);
         answers[0] = "B";
         answers[1] = "C";
         answers[2] = "D";
         answers[3] = "E";
-        smgr.register("User_one");
-        bool create_1 = smgr.createSurvey("A", answers, 5, 20, 3 ether);
+        bool create_1 = smgr.createSurvey("A", answers, 20, 3 ether);
         assertEq(create_1, true);
         string[] memory empty = new string[](0);
         vm.expectRevert("Must include at least one answer option");
-        smgr.createSurvey("A", empty, 5, 20, 1 ether); // trying to make a survey with no answers
+        smgr.createSurvey("A", empty, 20, 1 ether); // trying to make a survey with no answers
         vm.stopPrank();
     }
 
@@ -72,29 +80,28 @@ contract SurveyTest is Test {
     */
     function testCreateTooExpensive() public {
         vm.startPrank(user);
-        smgr.addBalance(5 ether);
+        smgr.register("User_one");
+        smgr.addBalance{value: 5 ether}();
         string[] memory answers = new string[](4);
         answers[0] = "B";
         answers[1] = "C";
         answers[2] = "D";
         answers[3] = "E";
-        smgr.register("User_one");
         vm.expectRevert("Not enough ETH passed to cover survey reward and host cut");
-        smgr.createSurvey("A", answers, 5, 20, 10 ether);
+        smgr.createSurvey("A", answers, 20, 10 ether);
         vm.stopPrank();
     }
 
     /*
-    This test checks if an unregistered user is able to create a survey. Since a user must be registered, the expected result 
-    is that the survey can not be created and the function call returns false.
+    This test checks if an unregistered user can deposit ETH to create a survey. Since a user must be registered, the expected result 
+    is that it raises a revert "You must be registered to deposit", and the ETH is returned.
     */
     function testCreateUnregistered() public {
         vm.startPrank(guest1);
-        smgr.addBalance(5 ether);
-        string[] memory answers = new string[](1);
-        answers[0] = "B";
-        vm.expectRevert("Must be registered to create surveys");
-        smgr.createSurvey("A", answers, 5, 20, 3 ether);
+        deal(guest1, 5 ether);
+        vm.expectRevert("You must be registered to deposit");
+        smgr.addBalance{value:5 ether}();
+        assertEq(address(guest1).balance, 5 ether, "Failed to get ether back");
         vm.stopPrank();
     }
 
@@ -117,18 +124,18 @@ contract SurveyTest is Test {
     */
     function testGetActiveSurveys() public {
         vm.startPrank(user);
+        smgr.register("User_one");
         uint256[] memory active = smgr.getActiveSurveys();
         assertEq(active.length, 0);
-        
-        smgr.addBalance(5 ether);
+        smgr.addBalance{value: 5 ether}();
+        assertEq(address(user).balance, 95 ether, "Failed to deposit ether");
         string[] memory answers = new string[](4);
         answers[0] = "B";
         answers[1] = "C";
         answers[2] = "D";
         answers[3] = "E";
-        smgr.register("User_one");
-        smgr.createSurvey("A", answers, 5, 20, 2 ether);
-        smgr.createSurvey("B", answers, 5, 15, 1 ether);
+        smgr.createSurvey("A", answers, 20, 2 ether);
+        smgr.createSurvey("B", answers, 15, 1 ether);
         uint256[] memory new_active = smgr.getActiveSurveys();
         SurveyManager.Survey memory survey1 = smgr.getSurvey(0);
         SurveyManager.Survey memory survey2 = smgr.getSurvey(1);
@@ -147,16 +154,16 @@ contract SurveyTest is Test {
     */
     function testRespond() public {
         vm.startPrank(user);
-        smgr.addBalance(5 ether);
+        smgr.register("User_one");
+        smgr.addBalance{value: 5 ether}();
+        assertEq(address(user).balance, 95 ether, "Failed to deposit ether");
         string[] memory answers = new string[](4);
         answers[0] = "B";
         answers[1] = "C";
         answers[2] = "D";
         answers[3] = "E";
-        smgr.register("User_one");
-        smgr.createSurvey("A", answers, 5, 20, 2 ether);
+        smgr.createSurvey("A", answers, 20, 2 ether);
         vm.stopPrank();
-
         vm.startPrank(guest1);
         smgr.surveyRespond(0, 1);
         vm.stopPrank();
@@ -187,14 +194,15 @@ contract SurveyTest is Test {
     */
     function testGetQA() public {
         vm.startPrank(user);
-        smgr.addBalance(5 ether);
+        smgr.register("User_one");
+        smgr.addBalance{value: 5 ether}();
+        assertEq(address(user).balance, 95 ether, "Failed to deposit ether");
         string[] memory answers = new string[](4);
         answers[0] = "B";
         answers[1] = "C";
         answers[2] = "D";
         answers[3] = "E";
-        smgr.register("User_one");
-        smgr.createSurvey("A", answers, 5, 20, 2 ether);
+        smgr.createSurvey("A", answers, 20, 2 ether);
         assertEq(smgr.getSurveyQuestion(0), "A");
         assertEq(smgr.getAnswerOptions(0), answers);
         vm.stopPrank();
@@ -207,14 +215,15 @@ contract SurveyTest is Test {
     */
     function testCloseSurvey() public {
         vm.startPrank(user);
-        smgr.addBalance(5 ether);
+        smgr.register("User_one");
+        smgr.addBalance{value: 5 ether}();
+        assertEq(address(user).balance, 95 ether, "Failed to deposit ether");
         string[] memory answers = new string[](4);
         answers[0] = "B";
         answers[1] = "C";
         answers[2] = "D";
         answers[3] = "E";
-        smgr.register("User_one");
-        smgr.createSurvey("A", answers, 5, 2, 2 ether);
+        smgr.createSurvey("A", answers, 2, 2 ether);
         vm.stopPrank();
         vm.startPrank(guest1);
         smgr.surveyRespond(0, 1);
@@ -228,6 +237,18 @@ contract SurveyTest is Test {
         vm.expectRevert("Cannot close an inactive survey");
         smgr.closeSurvey(0);
         vm.stopPrank();
+        vm.startPrank(guest1);
+        smgr.withdraw();
+        vm.stopPrank();
+        vm.startPrank(guest2);
+        smgr.withdraw();
+        vm.stopPrank();
+        vm.startPrank(admin);
+        smgr.withdraw();
+        vm.stopPrank();
+        assertEq(address(admin).balance, 5000 wei, "Failed to withdraw ether");
+        assertEq(address(guest1).balance, 1 ether - 2500 wei, "Failed to withdraw ether");
+        assertEq(address(guest2).balance, 1 ether - 2500 wei, "Failed to withdraw ether");
     }
 
     /*
@@ -238,14 +259,15 @@ contract SurveyTest is Test {
     */
     function testCloseSurveyFailed() public {
         vm.startPrank(user);
-        smgr.addBalance(5 ether);
+        smgr.register("User_one");
+        smgr.addBalance{value: 5 ether}();
+        assertEq(address(user).balance, 95 ether, "Failed to deposit ether");
         string[] memory answers = new string[](4);
         answers[0] = "B";
         answers[1] = "C";
         answers[2] = "D";
         answers[3] = "E";
-        smgr.register("User_one");
-        smgr.createSurvey("A", answers, 5, 3, 2 ether);
+        smgr.createSurvey("A", answers, 3, 2 ether);
         vm.stopPrank();
         vm.startPrank(guest1);
         smgr.surveyRespond(0, 1);
@@ -261,7 +283,20 @@ contract SurveyTest is Test {
         vm.expectRevert("Cannot close an inactive survey");
         smgr.closeSurvey(0);
         vm.stopPrank();
+        vm.startPrank(guest1);
+        smgr.withdraw();
+        vm.stopPrank();
+        vm.startPrank(guest2);
+        smgr.withdraw();
+        vm.stopPrank();
+        vm.startPrank(admin);
+        smgr.withdraw();
+        vm.stopPrank();
+        assertEq(address(admin).balance, 5000 wei, "Failed to withdraw ether");
+        assertEq(address(guest1).balance, 1 ether - 2500 wei, "Failed to withdraw ether");
+        assertEq(address(guest2).balance, 1 ether - 2500 wei, "Failed to withdraw ether");
     }
+
 
 
 }

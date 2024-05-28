@@ -10,7 +10,6 @@ contract SurveyManager {
         string[] answers;
         uint256[] answerCounts;
         address[] hasUserResponded;
-        uint256 expirationTime; //timestamp it should expire (unix in seconds)
         uint256 maxResponses;
         uint256 reward; //in wei
     }
@@ -31,15 +30,27 @@ contract SurveyManager {
     uint256 public nextSurveyId;
     uint256 public max_surveys = 100; // temporary solution to the issue of newArray initialization when initializing an Account. Or maybe we can decide to just keep the survey max.
     mapping(address => uint256) private balances;
+    address admin;
 
     constructor() {
+        admin = msg.sender;
         nextSurveyId = 0;
         
     }
     
-    function addBalance(uint256 amount) public returns (bool) {
-        balances[msg.sender] += amount;
+    function addBalance() public payable returns (bool) {
+        require(msg.value >= 1 ether, "You must deposit at least 1 ether");
+        require(isRegistered[msg.sender], "You must be registered to deposit");
+        balances[msg.sender] += msg.value;
         return true;
+    }
+
+    function withdraw() public{
+        uint256 amount = balances[msg.sender];
+        balances[msg.sender] = 0;
+
+        (bool sent,) = msg.sender.call{value: amount}("");
+        require(sent, "Failed to send balance");
     }
 
     // Registers sender if not already registered
@@ -64,7 +75,7 @@ contract SurveyManager {
     // Make sure the user is registered
     // Make sure that the user has inputted enough tokens to cover the reward & other fees
     // Make a survey object and add it into the survey list.
-    function createSurvey(string calldata question, string[] calldata answers, uint256 expiration_time, uint256 response_cap, uint256 pooled_reward) public payable returns (bool) {
+    function createSurvey(string calldata question, string[] calldata answers, uint256 response_cap, uint256 pooled_reward) public returns (bool) {
         require(isRegistered[msg.sender], "Must be registered to create surveys");
         require(balances[msg.sender] >= pooled_reward + HOST_CUT, "Not enough ETH passed to cover survey reward and host cut");
         uint256 remainingETH = balances[msg.sender] - (pooled_reward + HOST_CUT);
@@ -80,7 +91,6 @@ contract SurveyManager {
             question: question,
             answers: answers,
             answerCounts: new uint256[](answers.length),
-            expirationTime: block.timestamp + expiration_time,
             hasUserResponded: new address[](0),
             maxResponses: response_cap,
             reward: pooled_reward
@@ -155,7 +165,7 @@ contract SurveyManager {
     // off-chain programming in a different language or using cron-like service, which imo isn't worth the effort for this project. Fortunately, the track requirements say
     // "A survey owner can close the survey OR wait for it to close after the expiry block timestamp OR when it reaches the maximum accepted data points."
     // This means we can probably just ditch the expiration timestamp without points being deducted.
-    function closeSurvey(uint256 surveyId) public payable returns (bool) {
+    function closeSurvey(uint256 surveyId) public returns (bool) {
         Survey storage survey = surveyById[surveyId];
         Account storage owner = registeredUsers[msg.sender];
         require((msg.sender == survey.owner) || (survey.maxResponses == survey.hasUserResponded.length), "Survey closure not authorized");
@@ -206,6 +216,7 @@ contract SurveyManager {
         
         uint256 num_responses = survey.hasUserResponded.length;
         uint256 remainingEth = survey.reward - HOST_CUT;
+        balances[admin] += HOST_CUT;
 
         if (num_responses == 0) {
             balances[survey.owner] += remainingEth;
@@ -216,8 +227,6 @@ contract SurveyManager {
                 balances[addr] += perPersonEth;
             }
         }
-        
-
         return true;
     }
 }
