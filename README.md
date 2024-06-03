@@ -1,5 +1,4 @@
 # Survey Money
-(Incomplete documentation, will finish later)
 
 ## APIs of the application
 createSurvey(string question, string[] answers, uint256 expiration_time, uint256 response_cap, uint256 pooled_reward)
