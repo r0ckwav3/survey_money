@@ -1,7 +1,7 @@
 # Survey Money
 (Incomplete documentation, will finish later)
 
-## APIs of the application: what they do, how they are called, what they return, and any special and security notes
+## APIs of the application
 createSurvey(string question, string[] answers, uint256 expiration_time, uint256 response_cap, uint256 pooled_reward)
 
 Creates a survey and adds the survey to the survey list. Returns true if the survey creation was successful and false otherwise.
@@ -36,9 +36,14 @@ getSurveyQuestion(uint256 surveyId)
 
 Returns the question of the survey that corresponds to the surveyId.
 
+### Security notes
+
 ## How to set up the environment and initialize the application
 In order to run this application, the user must have Foundry installed, which can be done by following the steps [here](https://book.getfoundry.sh/getting-started/installation).
-The user can run the tests written for the application using (finish later).
+The user can run the tests written for the application in a Linux environment by going to the directory that contains this program, then running 
+```
+$forge test
+```
 In order to use the application itself, (finish later).
 
 ## What kinds of components there are, and what they do
