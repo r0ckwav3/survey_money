@@ -1,7 +1,6 @@
 # Survey Money
-(Incomplete documentation, will finish later)
-
 ## APIs of the application
+### Functions
 createSurvey(string question, string[] answers, uint256 expiration_time, uint256 response_cap, uint256 pooled_reward)
 
 Creates a survey and adds the survey to the survey list. Returns true if the survey creation was successful and false otherwise.
@@ -28,13 +27,46 @@ getAnswerOptions(int surveyId)
 
 Returns a string of all the answer options for the survey corresponding to the surveyId.
 
+getSurveyQuestion(uint256 surveyId)
+
+Returns the question of the survey that corresponds to the surveyId.
+
 closeSurvey(int surveyId)
 
 Closes survey, which is only allowed if the survey belongs to the caller and is not already closed, returns true if successfully closed. Return false if the survey does not successfully close.
 
-getSurveyQuestion(uint256 surveyId)
+addBalance()
 
-Returns the question of the survey that corresponds to the surveyId.
+Can only be called by a registered user. This function allows a user to deposit ETH from their personal balance into the global balance mapping of their address. This ETH is used to pay for creating surveys. The minimum deposit amount is 1 ether. Returns true if successful.
+
+withdraw()
+
+This withdraws all ETH from the global balance mapping of their address and deposits it back to their personal balance.
+
+### Global data
+mapping(address => account): registeredUsers
+
+Returns the account associated with the address of a registered user
+
+mapping(uint256 => survey): surveyById
+
+Returns the survey associated with its survey ID
+
+mapping(address=>bool) isRegistered
+
+Returns whether or not an address belongs to a registered user
+
+mapping(string=>bool) isNameTaken
+
+Returns whether or not a username is already taken
+
+Survey[]: activeSurveys
+
+The list of currently active surveys
+
+uint256: HOST_CUT
+
+The constant amount that the admin takes for each created survey.
 
 ### Security notes
 
