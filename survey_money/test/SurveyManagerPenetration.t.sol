@@ -26,7 +26,7 @@ contract Attacker {
         surveyManager.withdraw();
     }
 
-    function fallback() external payable {
+    fallback() external payable {
         reentrancyCount++;
         if(reentrancyCount < 10){
             surveyManager.withdraw();
@@ -65,15 +65,15 @@ contract SurveyTest is Test {
     /*
     This function aims to test that withdraw, the only way to recieve ether from the application
     is resistant from a reentry attack. Here the attacker will try an reentry attack using the withdraw
-    function in order to withdraw more ether than they put in.
+    function in order to withdraw more ether than they put in. However, since the balance is set to 0 before
+    ether is given out, the attacker will not be able to gain any extra ether.
     */
     function testReentry() public{
         vm.startPrank(address(attacker));
         smgr.register("Attacker");
         smgr.addBalance{value: 5 ether}();
-        vm.expectRevert("Failed to send balance");
         attacker.attack();
-        assertEq(address(attacker).balance, 95 ether);
+        assertEq(address(attacker).balance, 100 ether);
         vm.stopPrank();
     }
 

@@ -84,12 +84,6 @@ contract SurveyManager {
 
         balances[msg.sender] -= pooled_reward;
 
-        // check for re-entry attacks here
-        /*if (remainingETH >= 0){
-            (bool sent,) = msg.sender.call{value: remainingETH}("Refunded eth from createSurvey()");
-            require(sent, "Cannot refunt excess ether to the survey creator");
-        }*/
-
         Survey memory newSurvey = Survey({
             owner: address(msg.sender),
             id: nextSurveyId,
@@ -107,8 +101,6 @@ contract SurveyManager {
         activeSurveys.push(newSurvey);
         acc.activeSurveys.push(newSurvey.id);
         nextSurveyId++;
-
-        // todo: now that we use requires, do we need to return a bool at all?
         return true;
     }
 
