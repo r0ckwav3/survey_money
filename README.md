@@ -69,7 +69,7 @@ uint256: HOST_CUT
 The constant amount that the admin takes for each created survey.
 
 ### Security notes
-We also added various checks in place to ensure that participants can not exploit the survey reward system by voting multiple times, voting in their own surveys, unauthorized withdraw of balances, etc.
+We also added various checks in place to ensure that participants can not exploit the survey reward system by voting multiple times, voting in their own surveys, unauthorized withdraw of balances, and more. A more comprehensive depiction of our security measures can be found in our security test cases.
 
 ## How to set up the environment and initialize the application
 In order to run this application, the user must have Foundry installed, which can be done by following the steps [here](https://book.getfoundry.sh/getting-started/installation).
