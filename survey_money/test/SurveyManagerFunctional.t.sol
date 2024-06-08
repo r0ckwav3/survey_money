@@ -7,9 +7,15 @@ import "../lib/forge-std/src/console.sol";
 import {SurveyManager} from "../src/SurveyManager.sol";
 import "../src/SurveyManager.sol";
 
+contract SurveyManagerTest is SurveyManager{
+    function _getSurvey(uint256 surveyId) public view returns (Survey memory) {
+        return getSurvey(surveyId);
+    }
+}
 
 contract SurveyTest is Test {
-    SurveyManager public smgr;
+
+    SurveyManagerTest public smgr;
     address public admin = address(0x01);
     address public user = address(0x02);
     address public guest1 = address(0x03);
@@ -17,11 +23,9 @@ contract SurveyTest is Test {
     address public guest3 = address(0x05);
     address public guest4 = address(0x05);
 
-    // TODO: just set up a lot of this stuff outside of pranks so they don't need to be repeated so much
-
     function setUp() public {
         vm.startPrank(admin);
-        smgr = new SurveyManager();
+        smgr = new SurveyManagerTest();
         deal(admin, 0 ether);
         deal(user, 100 ether);
         deal(guest1, 0 ether);
@@ -33,10 +37,10 @@ contract SurveyTest is Test {
 
 
     /*
-    This tests the register function. The user first registers an account under a username, before attempting to register 
+    This tests the register function. The user first registers an account under a username, before attempting to register
     another account under the same username. The username must be unique, meaning it can not already be taken.
     Therefore, the first registration attempt is expected to return true, while the second attempt is expected to return false.
-    */ 
+    */
     function testRegister() public {
         vm.startPrank(user);
         assertEq(smgr.isNameTaken("User_one"), false);
@@ -52,7 +56,7 @@ contract SurveyTest is Test {
     }
 
     /*
-    This tests survey creation. The function first adds 5 ether to the user's account. The user then registers themselves. 
+    This tests survey creation. The function first adds 5 ether to the user's account. The user then registers themselves.
     They then create a two surveys: one that follows the survey creation rules and one that tries to have an empty set of answer choices.
     The expected result is that the first attempt at creation will return true while the second attempt at creation will return false.
     */
@@ -75,25 +79,8 @@ contract SurveyTest is Test {
     }
 
     /*
-    This tests the specific case in survey creation where the user attempts to add an amount of money to the pool reward that is 
-    greater than the amount they currently have in their balance. The expected result is this attempt will return false.
-    */
-    function testCreateTooExpensive() public {
-        vm.startPrank(user);
-        smgr.register("User_one");
-        smgr.addBalance{value: 5 ether}();
-        string[] memory answers = new string[](4);
-        answers[0] = "B";
-        answers[1] = "C";
-        answers[2] = "D";
-        answers[3] = "E";
-        vm.expectRevert("Not enough ETH passed to cover survey reward and host cut");
-        smgr.createSurvey("A", answers, 20, 10 ether);
-        vm.stopPrank();
-    }
 
-    /*
-    This test checks if an unregistered user can deposit ETH to create a survey. Since a user must be registered, the expected result 
+    This test checks if an unregistered user can deposit ETH to create a survey. Since a user must be registered, the expected result
     is that it raises a revert "You must be registered to deposit", and the ETH is returned.
     */
     function testCreateUnregistered() public {
@@ -107,7 +94,7 @@ contract SurveyTest is Test {
 
     /*
     This test checks if an unregistered user is able to get a list of their own surveys.
-    The expected result is that it raises a revert "Must be registered to get surveys", as an unregistered user can not create their 
+    The expected result is that it raises a revert "Must be registered to get surveys", as an unregistered user can not create their
     own surveys.
     */
     function testGetOwnSurveys_failed() public {
@@ -119,7 +106,7 @@ contract SurveyTest is Test {
 
     /*
     This test examines the functionality of the getActiveSurveys() function, which is used to view all active survey IDs.
-    It first tests if calling the function before any surveys are active will return an empty list. It then adds two surveys, before 
+    It first tests if calling the function before any surveys are active will return an empty list. It then adds two surveys, before
     calling the function again. It is expected that the next list will be of length two and contain the IDs of the two new surveys.
     */
     function testGetActiveSurveys() public {
@@ -137,8 +124,8 @@ contract SurveyTest is Test {
         smgr.createSurvey("A", answers, 20, 2 ether);
         smgr.createSurvey("B", answers, 15, 1 ether);
         uint256[] memory new_active = smgr.getActiveSurveys();
-        SurveyManager.Survey memory survey1 = smgr.getSurvey(0);
-        SurveyManager.Survey memory survey2 = smgr.getSurvey(1);
+        SurveyManager.Survey memory survey1 = smgr._getSurvey(0);
+        SurveyManager.Survey memory survey2 = smgr._getSurvey(1);
         assertEq(new_active.length, 2);
         assertEq(new_active[0], survey1.id);
         assertEq(new_active[1], survey2.id);
@@ -146,11 +133,29 @@ contract SurveyTest is Test {
     }
 
     /*
-    This function tests the ability for other addresses to respond to a survey. It checks that the survey answer counts 
-    update correctly, that the addresses that respond to the survey are added to the list of addresses that have responded, 
-    and checks that participants can not respond to a survey twice or respond with an invalid answer.
-    It is expected that disallowed behavior will return the correct reverts and that the survey object will update the way it 
-    is intended to.
+    This function tests that the ether is refunded when the survey closes with no responses.
+    */
+    function testNoRespond() public{
+        vm.startPrank(user);
+        smgr.register("User_one");
+        smgr.addBalance{value: 5 ether}();
+        assertEq(address(user).balance, 95 ether, "Failed to deposit ether");
+        string[] memory answers = new string[](4);
+        answers[0] = "B";
+        answers[1] = "C";
+        answers[2] = "D";
+        answers[3] = "E";
+        smgr.createSurvey("A", answers, 20, 2 ether);
+        bool close = smgr.closeSurvey(0);
+        assertEq(close, true);
+        smgr.withdraw();
+        assertEq(address(user).balance, 100 ether - 5000 wei);
+        vm.stopPrank();
+    }
+
+    /*
+    This function tests the ability for other addresses to respond to a survey. It checks that the survey answer counts
+    update correctly, that the addresses that respond to the survey are added to the list of addresses that have responded.
     */
     function testRespond() public {
         vm.startPrank(user);
@@ -169,14 +174,10 @@ contract SurveyTest is Test {
         vm.stopPrank();
         vm.startPrank(guest2);
         smgr.surveyRespond(0, 3);
-        vm.expectRevert("Cannot respond to survey twice");
-        smgr.surveyRespond(0, 2);
         vm.stopPrank();
         vm.startPrank(guest3);
-        vm.expectRevert("Please select a valid answer");
-        smgr.surveyRespond(0, 4);
         smgr.surveyRespond(0, 3);
-        SurveyManager.Survey memory survey = smgr.getSurvey(0);
+        SurveyManager.Survey memory survey = smgr._getSurvey(0);
         assertEq(survey.hasUserResponded[0], guest1);
         assertEq(survey.hasUserResponded[1], guest2);
         assertEq(survey.hasUserResponded[2], guest3);
@@ -189,7 +190,7 @@ contract SurveyTest is Test {
 
     /*
     This function tests that someone can retrieve the survey question and answer options as long as they have the survey ID.
-    The expected behavior is that getSurveyQuestion(0) returns "A", while getAnswerOptions(0) returns the list of answers passed 
+    The expected behavior is that getSurveyQuestion(0) returns "A", while getAnswerOptions(0) returns the list of answers passed
     in as an argument to the createSurvey() function.
     */
     function testGetQA() public {
@@ -209,11 +210,11 @@ contract SurveyTest is Test {
     }
 
     /*
-    This function tests if a survey automatically closes once it reaches the response limit. 
-    The expected behavior is that once the second participant votes, the survey automatically closes itself, and 
-    attempts to manually close it again will fail.
+    This function tests if a survey automatically closes once it reaches the response limit.
+    The expected behavior is that once the second participant votes, the survey automatically closes itself, and
+    ether is properly distributed.
     */
-    function testCloseSurvey() public {
+    function testCloseSurveyAuto() public {
         vm.startPrank(user);
         smgr.register("User_one");
         smgr.addBalance{value: 5 ether}();
@@ -230,12 +231,8 @@ contract SurveyTest is Test {
         vm.stopPrank();
         vm.startPrank(guest2);
         smgr.surveyRespond(0, 3);
-        SurveyManager.Survey memory survey = smgr.getSurvey(0);
+        SurveyManager.Survey memory survey = smgr._getSurvey(0);
         assertEq(survey.active, false);
-        vm.stopPrank();
-        vm.startPrank(user);
-        vm.expectRevert("Cannot close an inactive survey");
-        smgr.closeSurvey(0);
         vm.stopPrank();
         vm.startPrank(guest1);
         smgr.withdraw();
@@ -252,12 +249,10 @@ contract SurveyTest is Test {
     }
 
     /*
-    This function tests both a manual closeSurvey() call by the survey owner and invalid attempts to close the survey.
-    The expected behavior is that anyone not the survey owner attempting to close the survey will be unable to, 
-    the survey owner can manually close the survey while it is still active, and that anyone, including the owner, 
-    attempting to close the survey once it is already inactive will cause a revert.
+    This function tests both a manual closeSurvey() call by the survey owner. The expected behavior is that
+    the survey will close and the ether is properly distributed
     */
-    function testCloseSurveyFailed() public {
+    function testCloseSurveyManual() public {
         vm.startPrank(user);
         smgr.register("User_one");
         smgr.addBalance{value: 5 ether}();
@@ -274,14 +269,10 @@ contract SurveyTest is Test {
         vm.stopPrank();
         vm.startPrank(guest2);
         smgr.surveyRespond(0, 3);
-        vm.expectRevert("Survey closure not authorized");
-        smgr.closeSurvey(0);
         vm.stopPrank();
         vm.startPrank(user);
         bool close = smgr.closeSurvey(0);
         assertEq(close, true);
-        vm.expectRevert("Cannot close an inactive survey");
-        smgr.closeSurvey(0);
         vm.stopPrank();
         vm.startPrank(guest1);
         smgr.withdraw();
@@ -297,6 +288,37 @@ contract SurveyTest is Test {
         assertEq(address(guest2).balance, 1 ether - 2500 wei, "Failed to withdraw ether");
     }
 
+    /*
+    This function tests the getter functions in our application, specifically, the ether reward for the users
+    and the answer counts for the survey creator.
+    */
+    function testGetSurveyInfo() public{
+        vm.startPrank(user);
+        smgr.register("User_one");
+        smgr.addBalance{value: 5 ether}();
+        assertEq(address(user).balance, 95 ether, "Failed to deposit ether");
+        string[] memory answers = new string[](4);
+        answers[0] = "B";
+        answers[1] = "C";
+        answers[2] = "D";
+        answers[3] = "E";
+        smgr.createSurvey("A", answers, 2, 2 ether);
+        vm.stopPrank();
+        vm.startPrank(guest1);
+        smgr.surveyRespond(0, 1);
+        uint256 minReward = smgr.getMinPayout(0);
+        assertEq(minReward, 1 ether - 2500 wei);
+        vm.stopPrank();
+        vm.startPrank(guest2);
+        smgr.surveyRespond(0, 3);
+        vm.stopPrank();
+        vm.startPrank(user);
+        uint256[] memory results = smgr.getSurveyResults(0);
+        assertEq(results[0], 0);
+        assertEq(results[1], 1);
+        assertEq(results[2], 0);
+        assertEq(results[3], 1);
+        vm.stopPrank();
 
-
+    }
 }

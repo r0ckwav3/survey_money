@@ -77,18 +77,12 @@ contract SurveyManager {
     // Make a survey object and add it into the survey list.
     function createSurvey(string calldata question, string[] calldata answers, uint256 response_cap, uint256 pooled_reward) public returns (bool) {
         require(isRegistered[msg.sender], "Must be registered to create surveys");
-        require(balances[msg.sender] >= pooled_reward + HOST_CUT, "Not enough ETH passed to cover survey reward and host cut");
-        uint256 remainingETH = balances[msg.sender] - (pooled_reward + HOST_CUT);
+        require(balances[msg.sender] >= pooled_reward , "Not enough ETH passed to cover survey reward and host cut");
+        uint256 remainingETH = balances[msg.sender] - (pooled_reward);
         require(uint256(remainingETH / response_cap) > 0, "Must have enough ETH to distribute among max respondants");
         require(answers.length > 0, "Must include at least one answer option");
 
         balances[msg.sender] -= pooled_reward;
-
-        // check for re-entry attacks here
-        if (remainingETH >= 0){
-            (bool sent,) = msg.sender.call{value: remainingETH}("Refunded eth from createSurvey()");
-            require(sent, "Cannot refunt excess ether to the survey creator");
-        }
 
         Survey memory newSurvey = Survey({
             owner: address(msg.sender),
@@ -108,11 +102,11 @@ contract SurveyManager {
         acc.activeSurveys.push(newSurvey.id);
         nextSurveyId++;
 
-        // todo: now that we use requires, do we need to return a bool at all?
         return true;
     }
 
-    function getSurvey(uint256 surveyId) public view returns (Survey memory) {
+    // Used for testing to make sure surveys are being properly edited
+    function getSurvey(uint256 surveyId) internal view returns (Survey memory) {
         return surveyById[surveyId];
     }
 
@@ -120,6 +114,7 @@ contract SurveyManager {
     // Records answer and adds it to the responded mapping in the survey
     function surveyRespond(uint surveyId, uint answer) external returns (bool) {
         require(surveyById[surveyId].hasUserResponded.length < surveyById[surveyId].maxResponses, "Response cap reached"); // If closeSurvey() works properly, this should never be called
+        require(surveyById[surveyId].owner != msg.sender, "Owner can not respond to their own survey");
 
         for (uint i = 0; i < surveyById[surveyId].hasUserResponded.length; i++) {
             require(surveyById[surveyId].hasUserResponded[i] != msg.sender, "Cannot respond to survey twice");
@@ -127,8 +122,6 @@ contract SurveyManager {
 
         require(surveyById[surveyId].active, "Cannot respond to inactive survey");
         require(answer < surveyById[surveyId].answers.length, "Please select a valid answer");
-        // TODO: Should we allow survey owners to respond to their own surveys?
-        // require(msg.sender != surveyById[surveyId].owner, "Owner can't answer their own survey.");
 
         surveyById[surveyId].answerCounts[answer]++;
         surveyById[surveyId].hasUserResponded.push(msg.sender);
@@ -167,6 +160,16 @@ contract SurveyManager {
         return surveyById[surveyId].question;
     }
 
+    function getSurveyResults(uint256 surveyId) external view returns (uint256[] memory){
+        require(msg.sender == surveyById[surveyId].owner, "You are not the owner of the survey");
+        require(!surveyById[surveyId].active, "You cannot view the results of an active survey");
+        return surveyById[surveyId].answerCounts;
+    }
+
+    function getMinPayout(uint256 surveyId) external view returns (uint256){
+        require(surveyById[surveyId].active, "surveyId is not valid");
+        return (surveyById[surveyId].reward - HOST_CUT)/ (surveyById[surveyId].maxResponses);
+    }
 
     // Closes survey, only if survey belongs to the caller and is not already closed, returns if successfully closed
     // IMPORTANT NOTE: So turns out Solidity doesn't allow automatic running of functions when a certain timestamp is reached, so automatically closing a survey would require
