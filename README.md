@@ -78,7 +78,6 @@ The user can run the tests written for the application in a Linux environment by
 ```
 $forge test
 ```
-In order to use the application itself, (finish later).
 
 ## What kinds of components there are, and what they do
 ### Account
